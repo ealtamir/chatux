@@ -26,6 +26,7 @@ int main(int argc, const char *argv[])
     case -1:
         errExit("fork");
     break;
+
     case 0: /* child gets its PID set to 0 */
         if (close(pfd[1]) == -1)
             errExit("close");
@@ -35,8 +36,8 @@ int main(int argc, const char *argv[])
             gen_buf[index] = '\0';
             printf("Child read: %s\n", gen_buf);
         }
-
     break;
+
     default: /* parent */
         if (close(pfd[0]) == -1)
             errExit("close");
