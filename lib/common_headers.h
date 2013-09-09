@@ -2,6 +2,7 @@
 #define AUXHEADER_H
 
 #include <sys/types.h>  /* Defines basic POSIX data types */
+#include <sys/stat.h>   /* Contains permission constants */
 
 #include <stdio.h>      /* */
 #include <stdlib.h>
