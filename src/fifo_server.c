@@ -32,6 +32,7 @@ int main(int argc, const char *argv[])
     if (serverfd == -1)
         errExit("failed to open created FIFO");
 
+    // Open dummy FIFO write to prevent seeing EOF.
     dummyfd = open(SERVER_PATHNAME, O_WRONLY);
     if (dummyfd == -1)
         errExit("failed to open dummy FIFO writer");

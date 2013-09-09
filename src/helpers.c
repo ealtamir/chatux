@@ -1,4 +1,5 @@
 #include "../lib/helpers.h"
+#include <stdio.h>
 
 #define A_MAY 0x41 // Capital
 #define Z_MAY 0x5A
@@ -24,4 +25,18 @@ void rot13(const char* source, char* dest, int len ) {
 
         i++;
     }
+}
+
+int getUserInput(char* buffer, int buffer_size) {
+
+    char c = 0;
+    int index = 0;
+
+    while( (c = getchar()) != '\n' && index < buffer_size - 1) {
+        buffer[index] = c;
+        index++;
+    }
+    buffer[index++] = '\0';
+
+    return index;
 }
