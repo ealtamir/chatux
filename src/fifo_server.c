@@ -49,19 +49,21 @@ int main(int argc, const char *argv[])
             continue; // If what was read doesn't match
         }
 
-        req_buffer = malloc(cl_request.data_len);
-        if (read(serverfd, req_buffer, cl_request.data_len) == -1) {
+        req_buffer = (char*) malloc(cl_request.data_len);
+        if (read(serverfd, req_buffer, cl_request.data_len)
+                != cl_request.data_len) {
             free(req_buffer);
-            errMsg("Error while trying to read data from client.\n");
+            errMsg("Expected: %d\n", cl_request.data_len);
             continue;
         }
+        printf("Server received: %s, len: %d\n", req_buffer, cl_request.data_len);
 
         rot13(req_buffer, req_buffer, cl_request.data_len);
 
         snprintf(client_fifo, CLIENT_FIFO_SIZE,
                 CLIENT_FIFO_TEMPLATE, (long int)cl_request.pid);
-        fprintf(stdout, "Sending to client: %ld\n",
-                (long int)cl_request.pid);
+        printf("%s\n", client_fifo);
+        printf("Sending to client: %ld, message: %s\n", (long int)cl_request.pid, req_buffer);
 
         clientfd = open(client_fifo, O_WRONLY);
         if (clientfd == -1) {
@@ -69,10 +71,17 @@ int main(int argc, const char *argv[])
                 (long int) cl_request.pid);
             continue;
         }
+
         sv_response.data_len = cl_request.data_len;
         if (write(clientfd, &sv_response, sizeof(Response))
                 != sizeof(Response))
-            fprintf(stderr, "Failed to write %s.\n", client_fifo);
+            errMsg("Failed to write header to: %s.\n", client_fifo);
+
+        // strlen() + 1 to include '\0' char.
+        if (write(clientfd, req_buffer, strlen(req_buffer) + 1)
+                != strlen(req_buffer) + 1)
+            errMsg("Failed to write data to: %s.\n", client_fifo);
+
         if (close(clientfd) == -1)
             errMsg("Failed to close fd for client FIFO: %s", client_fifo);
 

@@ -8,29 +8,35 @@
 
 void rot13(const char* source, char* dest, int len ) {
     int i = 0;
-    char c = 0;
+    int c = 0;
 
     while (i < len && source[i] != '\0') {
-        c = source[i];
-        dest[i] = source[i] + 13;
+        c = source[i] + 13;
 
-        if (c >= A_MAY && c <= Z_MAY) {
-            if (dest[i] > Z_MAY)
-                dest[i] -= Z_MAY;
+        if (source[i] >= A_MAY && source[i] <= Z_MAY) {
+            if (c > Z_MAY)
+                dest[i] = c - (Z_MAY - A_MAY) + 1;
+            else
+                dest[i] = c;
         }
         else {
-            if (dest[i] > Z_MIN)
-                dest[i] -= Z_MIN;
+            if (c > Z_MIN)
+                dest[i] = c - (Z_MIN - A_MIN) + 1;
+            else
+                dest[i] = c;
         }
 
         i++;
     }
+    dest[i] = '\0';
 }
 
 int getUserInput(char* buffer, int buffer_size) {
 
     char c = 0;
     int index = 0;
+
+    printf("Client => ");
 
     while( (c = getchar()) != '\n' && index < buffer_size - 1) {
         buffer[index] = c;

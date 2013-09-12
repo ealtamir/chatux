@@ -23,21 +23,22 @@ int main(int argc, const char *argv[])
     int serverfd, clientfd;
     int request_num = 0;
 
+    umask(0);
+
     pid_t pid = getpid();
     snprintf(client_info, CLIENT_FIFO_SIZE,
             CLIENT_FIFO_TEMPLATE, (long int) pid);
 
-    clientfd = open(client_info, O_RDONLY);
-    if (clientfd == -1)
-        errExit("failed to open created FIFO");
+    printf("FIFO to be created in: %s\n", client_info);
 
-    // Open dummy FIFO write to prevent seeing EOF.
-    dummyfd = open(client_info, O_WRONLY);
-    if (dummyfd == -1)
-        errExit("failed to open dummy FIFO writer");
+
+    if (mkfifo(client_info, S_IRUSR | S_IWUSR | S_IWGRP) == -1
+            && errno != EEXIST)
+        errExit("Failed to create server fifo");
+
+    printf("created client fifo...\n");
 
     while (INFINITE_LOOP) {
-
         cl_request.pid = pid;
         cl_request.data_len = getUserInput(input_buff, INPUT_BUFFER_SIZE);
 
@@ -57,13 +58,20 @@ int main(int argc, const char *argv[])
 
         close(serverfd);
 
+        clientfd = open(client_info, O_RDONLY);
+        if (clientfd == -1)
+            errExit("failed to open created FIFO");
+
         if (read(clientfd, &sv_response, sizeof(Response))
                 != sizeof(Response))
-            errExit("client fifo read failed");
+            errExit("failed to read server response header");
         if (read(clientfd, input_buff, sv_response.data_len)
                 != sv_response.data_len)
-            errExit("client fifo read failed");
+            errExit("failed to read server response data - expected: %d", sv_response.data_len);
 
-        printf("response from server: %s\n", input_buff);
+        printf("%s, data_len: %d\n", input_buff, sv_response.data_len);
+        close(clientfd);
     }
+
+    removeFifo(client_info);
 }

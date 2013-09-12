@@ -1,9 +1,11 @@
 #ifndef FIFO_SERVER_HEADER
 #define FIFO_SERVER_HEADER
 
-#define CLIENT_FIFO_SIZE        21
+#define CLIENT_FIFO_SIZE        51
 #define CLIENT_FIFO_TEMPLATE    "/tmp/fifo_cl.%ld"
 #define SERVER_PATHNAME         "/tmp/fifo_sv"
+
+static void removeFifo(const char *path);
 
 typedef struct  {
     pid_t pid;
