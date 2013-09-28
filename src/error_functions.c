@@ -7,6 +7,8 @@
 __attribute__ ((__noreturn__))
 #endif
 
+#define BUF_SIZE 500
+
 static void
 terminate(Boolean useExit3) {
     char *s;
@@ -25,7 +27,6 @@ static void
 outputError(Boolean useErr, int err, Boolean flushStdout,
         const char *format, va_list ap)
 {
-#define BUF_SIZE 500
 
     char buf[BUF_SIZE], userMsg[BUF_SIZE], errText[BUF_SIZE];
 
