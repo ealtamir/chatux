@@ -8,6 +8,10 @@
 #define     BACKLOG     5
 #define     ADDRSTRLEN  (NI_MAXHOST + NI_MAXSERV + 10)
 
+int
+startPassiveSocket(const char *service, int type,
+        socklen_t *addrlen, bool setListen, int backlog);
+
 int main(int argc, const char *argv[])
 {
 
@@ -96,7 +100,13 @@ int main(int argc, const char *argv[])
 }
 
 int
-connectToServer(const char *service, int type,
+bindedSocket(const char *service, int type,
+        socklen_t *addrlen, int backlog) {
+    return startPassiveSocket(service, type, addrlen, TRUE, backlog);
+}
+
+int
+startPassiveSocket(const char *service, int type,
         socklen_t *addrlen, bool setListen, int backlog) {
 
     struct addrinfo hints;
