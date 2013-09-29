@@ -1,5 +1,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
+#include <pthread.h>
+
 #include "../lib/common_headers.h"
 #include "../lib/error_functions.h"
 #include "../lib/get_num.h"
@@ -8,19 +10,29 @@
 #define     BACKLOG     5
 #define     ADDRSTRLEN  (NI_MAXHOST + NI_MAXSERV + 10)
 
+typedef struct {
+    int cfd;
+    char *host;
+    char *service;
+    const struct sockaddr *sa;
+    socklen_t salen;
+} ThreadData;
+
+void freeThreadData(ThreadData *td);
+void* toThreadDelegator(void *args);
+int delegateRequest(int fd, const struct sockaddr *sa, socklen_t salen);
 int startListenSock(const char *service, socklen_t *addrlen, int backlog);
-int startPassiveSocket(const char *service, int type, socklen_t *addrlen, Boolean setListen, int backlog);
+int startPassiveSocket(const char *service, int type,
+        socklen_t *addrlen, Boolean setListen, int backlog);
+
 
 int main(int argc, const char *argv[])
 {
-    char addrStr[ADDRSTRLEN];
-    char host[NI_MAXHOST];
-    char service[NI_MAXSERV];
-    int len = 0;
-    int cfd = -1;
-    int sfd = -1;
-    int optval = 0;
-    int addrlen = 0;
+    int cfd     = -1;
+    int len     = 0;
+    int optval  = 0;
+    int sfd     = -1;
+    socklen_t addrlen = 0;
     struct sockaddr_storage claddr;
 
     if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
@@ -38,22 +50,72 @@ int main(int argc, const char *argv[])
             continue;
         }
 
-        if (getnameinfo((struct sockaddr *) &claddr, addrlen,
-                    host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0) {
-            snprintf(addrStr, ADDRSTRLEN, "(%s, %s)", host, service);
+        // Serve request in a new thread.
+        delegateRequest(cfd, (struct sockaddr *) &claddr, addrlen);
 
-        } else {
-            snprintf(addrStr, ADDRSTRLEN, "(?UNKNOWN?)");
-        }
-        printf("Connection from %s\n", addrStr);
-
-        break;
+        close(cfd);
     }
 
-    close(cfd);
     close(sfd);
 
     return 0;
+}
+int delegateRequest(int fd, const struct sockaddr *sa, socklen_t salen) {
+
+    char *host      = NULL;
+    char *service   = NULL;
+    int val         = -1;
+    pthread_t new_thread;
+    ThreadData *args = NULL;
+
+    host = malloc(NI_MAXHOST);
+    service = malloc(NI_MAXSERV);
+
+    if (!host && !service) {
+        errMsg("Couldn't allocate memory to start a new thread.");
+        return -1;
+    }
+
+    val = getnameinfo(sa, salen, host, NI_MAXHOST, service, NI_MAXSERV, 0);
+    if (val != 0) {
+        errMsg("Couldn't get client information from the socket address");
+        return -1;
+    }
+
+    args = malloc(sizeof(ThreadData));
+    args->cfd = fd;
+    args->host = host;
+    args->service = service;
+    args->sa = sa;
+    args->salen = salen;
+
+    val = pthread_create(&new_thread, NULL, &toThreadDelegator, args);
+    if (val > 0) {
+        errMsg("There was an error in the creation of the thread: %d", val);
+        return -1;
+    }
+
+    printf("New thread initialized.\n");
+    pthread_detach(new_thread);
+
+    return 0;
+}
+
+void* toThreadDelegator(void *args) {
+
+    ThreadData *td = (ThreadData*) args;
+
+    fprintf(stdout, "Thread created - (%s, %s)\n", td->host, td->service);
+
+    freeThreadData(td);
+
+    return NULL;
+}
+
+void freeThreadData(ThreadData *td) {
+    free(td->host);
+    free(td->service);
+    free(td);
 }
 
 int
