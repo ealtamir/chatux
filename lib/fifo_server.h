@@ -5,7 +5,6 @@
 #define CLIENT_FIFO_TEMPLATE    "/tmp/fifo_cl.%ld"
 #define SERVER_PATHNAME         "/tmp/fifo_sv"
 
-static void removeFifo(const char *path);
 
 typedef struct  {
     pid_t pid;
