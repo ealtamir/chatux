@@ -14,9 +14,10 @@
 #define     ADDRSTRLEN      (NI_MAXHOST + NI_MAXSERV + 10)
 #define     SERVER_PATHNAME "/tmp/chatux_server"
 
+
 typedef struct {
     int msg_size;
-    int pipe_fd;
+    int pipe_fd[2];
 } ThreadMsgHeader;
 
 typedef struct {
@@ -34,6 +35,7 @@ int startListenSock(const char *service, socklen_t *addrlen, int backlog);
 int startPassiveSocket(const char *service, int type,
         socklen_t *addrlen, Boolean setListen, int backlog);
 
+pthread_mutex_t fifo_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, const char *argv[])
 {
@@ -60,9 +62,8 @@ int main(int argc, const char *argv[])
         }
 
         // Serve request in a new thread.
+        // Thread should close its own cfd.
         delegateRequest(cfd, (struct sockaddr *) &claddr, addrlen);
-
-        //close(cfd);
     }
 
     close(sfd);
@@ -129,20 +130,35 @@ int readClientData(int cfd, char *data_buffer, int data_len) {
         }
     }
 
+    fprintf(stdout, "read: %s\n", data_buffer);
+
     return index;
 }
-int getDataFromServer(int *pipe_fd) {
+int getDataFromServer(int *pipe_fd, void *svr_data) {
 
     int val = -1;
     ThreadMsgHeader t_header;
 
-    val = read(pipe_fd[1], &t_header, sizeof(ThreadMsgHeader));
-    if (val == -1) {
-        errMsg("Error when thread tried to read from pipe");
+    //
+    // Thread hasn't closed his pipe write side fd, it
+    // should be done by the server.
+    //
+    val = read(pipe_fd[0], &t_header, sizeof(ThreadMsgHeader));
+    if (val != sizeof(ThreadMsgHeader)) {
+        errMsg("Error when thread tried to read from pipe: header size mismatch.");
         return -1;
     }
 
+    svr_data = malloc(t_header.msg_size);
+    val = read(pipe_fd[1], svr_data, t_header.msg_size);
+    if (val != t_header.msg_size) {
+        errMsg("Error when thread tried to read from pipe: data size mismatch.");
+        return -1;
+    }
 
+    close(pipe_fd[1]);
+
+    return 0;
 }
 
 int sendDataToServer(char *client_data, int data_len, int *pipe_fd) {
@@ -164,20 +180,51 @@ int sendDataToServer(char *client_data, int data_len, int *pipe_fd) {
     }
 
     t_header.msg_size = data_len;
-    t_header.pipe_fd = pipe_fd[1];
+    t_header.pipe_fd[1] = pipe_fd[1];
+    t_header.pipe_fd[0] = pipe_fd[0];
+
+    //
+    // Lock the mutex.
+    //
+    pthread_mutex_lock(&fifo_mtx);
+
     val = write(fifo_fd, &t_header, sizeof(ThreadMsgHeader));
     if (val != sizeof(ThreadMsgHeader)) {
         errMsg("Error when writing header to server FIFO: size mismatch.");
+        pthread_mutex_unlock(&fifo_mtx); // If failure unlock mutex.
         return -1;
     }
 
     val = write(fifo_fd, client_data, data_len);
     if (val != data_len) {
         errMsg("Error when writing client data to server FIFO: size mismatch.");
+        pthread_mutex_unlock(&fifo_mtx); // If failure unlock mutex.
+        return -1;
+    }
+
+    //
+    // Unlock the mutex.
+    //
+    pthread_mutex_unlock(&fifo_mtx);
+
+    return 0;
+}
+int sendDataToClient(ThreadData *td, void *svr_data) {
+    int val = -1;
+    int len = 0;
+
+    len = strlen((char*) svr_data);
+    val = write(td->cfd, svr_data, len);
+    if (val != len) {
+        errMsg("Thread couldn't send message to client: data size mismatch");
         return -1;
     }
 
     return 0;
+}
+
+void startIOListener() {
+
 }
 
 void* toThreadDelegator(void *args) {
@@ -187,6 +234,7 @@ void* toThreadDelegator(void *args) {
     int val = -1;
     int svr_fifo = 0;
     int pipe_fd[2];
+    void *svr_data = NULL; // malloc ptr for getdatafromserver.
 
     fprintf(stdout, "Thread created - (%s, %s)\n", td->host, td->service);
 
@@ -194,21 +242,32 @@ void* toThreadDelegator(void *args) {
     if (val == -1)
         errMsg("Error when reading data from a client");
 
-    val = sendDataToServer(client_data, MAX_DATA_SIZE, pipe_fd);
-    if (val == -1)
-        errMsg("Error while sending data to server.");
+    if (val != -1) {
+        val = sendDataToServer(client_data, MAX_DATA_SIZE, pipe_fd);
+        if (val == -1)
+            errMsg("Error while sending data to server.");
+    }
 
-    val = getDataFromServer(pipe_fd);
-    if (val != sizeof(ThreadMsgHeader))
-        errMsg("Error when receiving response from server in thread.");
+    if (val != -1) {
+        val = getDataFromServer(pipe_fd, svr_data);
+        if (val != sizeof(ThreadMsgHeader))
+            errMsg("Error when receiving response from server in thread.");
+    }
 
-    fprintf(stdout, "read: %s\n", client_data);
+    if (val != -1) {
+        val = sendDataToClient(td, svr_data);
+        if (val != 0)
+            errMsg("Error when sending data to client.");
+    }
+
+    startIOListener();
 
     //
     // Cleaning operations
     //
     close(td->cfd);         // Close client socket
     freeThreadData(td);
+    free(svr_data);
 
     return NULL;
 }
