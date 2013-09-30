@@ -1,8 +1,10 @@
-#include <sys/socket.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <netdb.h>
 #include <pthread.h>
-#include <limits.h>
-#include <fcntl.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 
 #include "../lib/common_headers.h"
 #include "../lib/error_functions.h"
@@ -223,8 +225,35 @@ int sendDataToClient(ThreadData *td, void *svr_data) {
     return 0;
 }
 
-void startIOListener() {
+int startIOListener(ThreadData *td, int *pipe_fd) {
 
+    fd_set readfds;
+    int ready = -1;
+    int nfds = 0;
+
+    for(;;) {
+        FD_ZERO(&readfds);
+        FD_SET(td->cfd, &readfds);
+        FD_SET(pipe_fd[1], &readfds);
+
+        nfds = max(td->cfd, pipe_fd[1]) + 1;
+
+        ready = select(nfds, &readfds, NULL, NULL, NULL);
+        if (ready == -1) {
+            errMsg("Error when using select() inside a thread.");
+            break;
+        }
+
+        if (FD_ISSET(td->cfd, &readfds)) {
+            // do stuff
+        }
+        if (FD_ISSET(pipe_fd[1], &readfds)) {
+            // do stuff
+        }
+
+    }
+
+    return (ready == -1)? -1: 0;
 }
 
 void* toThreadDelegator(void *args) {
@@ -260,14 +289,21 @@ void* toThreadDelegator(void *args) {
             errMsg("Error when sending data to client.");
     }
 
-    startIOListener();
+    // Free ptr before starting new listening cycle.
+    free(svr_data);
+
+    /*
+    val = startIOListener(td, pipe_fd);
+    if (val == -1) {
+        // Some error checking code.
+    }
+    */
 
     //
     // Cleaning operations
     //
     close(td->cfd);         // Close client socket
     freeThreadData(td);
-    free(svr_data);
 
     return NULL;
 }
