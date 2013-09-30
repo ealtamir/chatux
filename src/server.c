@@ -3,12 +3,14 @@
 #include "../lib/common_headers.h"
 #include "../lib/error_functions.h"
 #include "../lib/server.h"
+#include "../lib/dispatcher.h"
 
 #define     DISPATCHER_PATHNAME     "dispatcher"
 #define     DISPATCHER_NAME         "dispatcher"
 
 int initDispatcher();
 int startListening();
+int processRequest(ThreadMsgHeader t_header, char *user_data, int data_len);
 
 int main(int argc, const char *argv[])
 {
@@ -45,19 +47,71 @@ int main(int argc, const char *argv[])
     close(fifo_fd);
     close(dummy_fd);
 
+    return 0;
+}
+
+int processRequest(ThreadMsgHeader t_header,
+        char *user_data, int data_len) {
+
+    int val = 0;
+    ThreadMsgHeader resp_header;
+
+    resp_header.msg_size = data_len;
+    val = write(t_header.pipe_fd[1], &resp_header, sizeof(ThreadMsgHeader));
+    if (val != sizeof(ThreadMsgHeader)) {
+        errMsg("Server couldn't send response header through pipe: size mismatch.");
+        return -1;
+    }
+
+    val = write(t_header.pipe_fd[1], user_data, data_len);
+    if (val != data_len) {
+        errMsg("Server couldn't send response header through pipe: size mismatch");
+        return -1;
+    }
+
+    //
+    // SHOULD NOT BE CLOSED UNTIL THREAD IS KILLED.
+    //
+    close(t_header.pipe_fd[1]);
+
+    fprintf(stdout, "%s\n", user_data);
 
     return 0;
 }
 
 int startListening(int fifo_fd) {
     int val = -1;
+    ThreadMsgHeader t_header;
+    char *request_data = NULL;
 
     for(;;) {
+        val = read(fifo_fd, &t_header, sizeof(ThreadMsgHeader));
+        if (val != sizeof(ThreadMsgHeader)) {
+            errMsg("Error while reading server header.");
+            continue;
+        }
 
+        request_data = malloc(t_header.msg_size);
+        if (request_data == NULL)
+            errMsg("Server malloc failed with - %s", errno);
 
+        val = read(fifo_fd, &request_data, t_header.msg_size);
+        if (val != t_header.msg_size) {
+            errMsg("Error while reading request_data");
+            free(request_data);
+            continue;
+        }
 
+        // TODO: FIX THIS!!!!
+        //  Close read part of the thread pipe.
+        close(t_header.pipe_fd[0]);
+
+        processRequest(t_header, request_data, t_header.msg_size);
+
+        free(request_data);
     }
 
+    return 0;
 }
 
 int initDispatcher() {

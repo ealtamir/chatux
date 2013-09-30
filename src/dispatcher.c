@@ -10,6 +10,7 @@
 #include "../lib/error_functions.h"
 #include "../lib/get_num.h"
 #include "../lib/server.h"
+#include "../lib/dispatcher.h"
 
 #define     MAX_DATA_SIZE   (1024*4)
 #define     PORT_NUM        "50000"
@@ -17,18 +18,6 @@
 #define     ADDRSTRLEN      (NI_MAXHOST + NI_MAXSERV + 10)
 
 
-typedef struct {
-    int msg_size;
-    int pipe_fd[2];
-} ThreadMsgHeader;
-
-typedef struct {
-    int cfd;
-    char *host;
-    char *service;
-    const struct sockaddr *sa;
-    socklen_t salen;
-} ThreadData;
 
 void freeThreadData(ThreadData *td);
 void* toThreadDelegator(void *args);
@@ -169,7 +158,7 @@ int sendDataToServer(char *client_data, int data_len, int *pipe_fd) {
     int fifo_fd = -1;
     ssize_t val = -1;
 
-    fifo_fd = open(SERVER_PATHNAME, O_WRONLY);
+    fifo_fd = open(SERVER_FIFO_PATHNAME, O_WRONLY);
     if (fifo_fd == -1) {
         errMsg("Error when opening server FIFO.");
         return -1;
@@ -211,6 +200,7 @@ int sendDataToServer(char *client_data, int data_len, int *pipe_fd) {
 
     return 0;
 }
+
 int sendDataToClient(ThreadData *td, void *svr_data) {
     int val = -1;
     int len = 0;
@@ -245,10 +235,10 @@ int startIOListener(ThreadData *td, int *pipe_fd) {
         }
 
         if (FD_ISSET(td->cfd, &readfds)) {
-            // do stuff
+            // Request from client received
         }
         if (FD_ISSET(pipe_fd[1], &readfds)) {
-            // do stuff
+            // Response from server received
         }
 
     }
