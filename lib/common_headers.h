@@ -3,6 +3,7 @@
 
 #include <sys/types.h>  /* Defines basic POSIX data types */
 #include <sys/stat.h>   /* Contains permission constants */
+#include <fcntl.h>      /* Declares read/write ops and other constants */
 
 #include <stdio.h>      /* */
 #include <stdlib.h>

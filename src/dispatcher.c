@@ -9,12 +9,12 @@
 #include "../lib/common_headers.h"
 #include "../lib/error_functions.h"
 #include "../lib/get_num.h"
+#include "../lib/server.h"
 
 #define     MAX_DATA_SIZE   (1024*4)
 #define     PORT_NUM        "50000"
 #define     BACKLOG         5
 #define     ADDRSTRLEN      (NI_MAXHOST + NI_MAXSERV + 10)
-#define     SERVER_PATHNAME "/tmp/chatux_server"
 
 
 typedef struct {
