@@ -63,6 +63,7 @@ int processRequest(ThreadMsgHeader t_header,
     int val = 0;
     ThreadMsgHeader resp_header;
 
+
     resp_header.msg_size = data_len;
     val = write(t_header.pipe_fd[1], &resp_header, sizeof(ThreadMsgHeader));
     if (val != sizeof(ThreadMsgHeader)) {
@@ -90,6 +91,8 @@ int startListening(int fifo_fd) {
     int val = -1;
     ThreadMsgHeader t_header;
     char *request_data = NULL;
+
+    fprintf(stdout, "Listening for dispatcher requests....\n");
 
     for(;;) {
         val = read(fifo_fd, &t_header, sizeof(ThreadMsgHeader));
@@ -149,6 +152,7 @@ int initDispatcher() {
             break;
         default:
             result = 0;
+            fprintf(stdout, "Dispatcher PID: %d\n", child_id);
             break;
     }
 

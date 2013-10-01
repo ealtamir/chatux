@@ -55,6 +55,7 @@ int main(int argc, const char *argv[])
         // Serve request in a new thread.
         // Thread should close its own cfd.
         delegateRequest(cfd, (struct sockaddr *) &claddr, addrlen);
+        fprintf(stdout, "New request delegated.\n");
     }
 
     close(sfd);
@@ -359,7 +360,6 @@ startPassiveSocket(const char *service, int type,
             break;
 
         close(sfd); // bind() failed
-        printf("Unsuccessful read to structure.\n");
     }
 
     if (rp != NULL && setListen == TRUE) {
