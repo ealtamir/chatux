@@ -13,21 +13,17 @@ SERVER=server
 
 ALL: bin/all clean
 
-bin/all: get_num.o helpers.o error_functions.o fifo_client.o fifo_server.o sock_svr.o
-	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/get_num.o $(@D)/sock_svr.o -o $(@D)/sock_svr
-	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/fifo_$(SERVER).o -o $(@D)/$(SERVER)
-	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/fifo_$(CLIENT).o -o $(@D)/$(CLIENT)
+bin/all: get_num.o helpers.o error_functions.o dispatcher.o server.o
+	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/get_num.o $(@D)/server.o -o $(@D)/server
+	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/get_num.o $(@D)/dispatcher.o -o $(@D)/dispatcher
 
-sock_svr.o: sock_svr.c
+server.o: server.c server.h
+	$(CC) $(CFLAGS) $< -o bin/$@
+
+dispatcher.o: dispatcher.c dispatcher.h
 	$(CC) $(CFLAGS) $< -o bin/$@
 
 error_functions.o: error_functions.c error_functions.h
-	$(CC) $(CFLAGS) $< -o bin/$@
-
-fifo_$(CLIENT).o: fifo_$(CLIENT).c fifo_$(CLIENT).h
-	$(CC) $(CFLAGS) $< -o bin/$@
-
-fifo_$(SERVER).o: fifo_$(SERVER).c fifo_$(SERVER).h
 	$(CC) $(CFLAGS) $< -o bin/$@
 
 helpers.o: helpers.c helpers.h

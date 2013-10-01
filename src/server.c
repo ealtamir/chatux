@@ -1,11 +1,12 @@
 #include <signal.h>
+#include <libgen.h>
 
 #include "../lib/common_headers.h"
 #include "../lib/error_functions.h"
 #include "../lib/server.h"
 #include "../lib/dispatcher.h"
 
-#define     DISPATCHER_PATHNAME     "dispatcher"
+#define     DISPATCHER_PATHNAME     "/bin/dispatcher"
 #define     DISPATCHER_NAME         "dispatcher"
 
 int initDispatcher();
@@ -21,11 +22,13 @@ int main(int argc, const char *argv[])
     if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
         errExitEN(errno, "Failed to ignore SIGPIPE signal");
 
+    fprintf(stdout, "Starting server...\n");
+
     val = mkfifo(SERVER_FIFO_PATHNAME, S_IRUSR | S_IWUSR | S_IWGRP);
     if (val == -1 && errno != EEXIST)
         errExitEN(errno, "Failed to create server FIFO");
 
-    fifo_fd = open(SERVER_FIFO_PATHNAME, O_RDONLY);
+    fifo_fd = open(SERVER_FIFO_PATHNAME, O_RDONLY | O_NONBLOCK);
     if (fifo_fd == -1)
         errExitEN(errno, "Failed to open the server fifo");
 
@@ -33,9 +36,13 @@ int main(int argc, const char *argv[])
     if (dummy_fd == -1)
         errExitEN(errno, "Failed to open dummy_fifo for writing");
 
+    fprintf(stdout, "Initializing dispatcher...\n");
+
     val = initDispatcher();
     if (val == -1)
         errExitEN(errno, "Failed to initialize dispatcher.");
+
+    fprintf(stdout, "Dispatcher initialized. Starting service loop...\n");
 
     //
     // Main server loop
@@ -118,15 +125,24 @@ int initDispatcher() {
     pid_t child_id = 0;
     int result = 0;
     char *argV[10];
+    char *cwd;
 
     // Build arguments for dispatcher.
     argV[0] = DISPATCHER_NAME;
     argV[1] = SERVER_FIFO_PATHNAME;
     argV[2] = NULL;
 
+    cwd = malloc(100);
+
+    getcwd(cwd, 100);
+    strcat(cwd, DISPATCHER_PATHNAME);
+
+    fprintf(stdout, "dispatcher path: %s.\n", cwd);
+
     switch (child_id = fork()) {
         case 0:
-            result = execve(DISPATCHER_PATHNAME, argV, NULL);
+            result = execv((const char*) cwd, argV);
+            errExitEN(errno, "Could not execute dispatcher program");
             break;
         case -1:
             result = -1;
@@ -135,6 +151,8 @@ int initDispatcher() {
             result = 0;
             break;
     }
+
+    free(cwd);
 
     return result;
 
