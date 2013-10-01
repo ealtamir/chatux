@@ -13,14 +13,17 @@ SERVER=server
 
 ALL: bin/all clean
 
-bin/all: get_num.o helpers.o error_functions.o dispatcher.o server.o
-	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/get_num.o $(@D)/server.o -o $(@D)/server
-	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/get_num.o $(@D)/dispatcher.o -o $(@D)/dispatcher
+bin/all: get_num.o helpers.o error_functions.o thread_helpers.o dispatcher.o server.o
+	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/get_num.o $(@D)/thread_helpers.o $(@D)/server.o -o $(@D)/server
+	$(CC) $(@D)/helpers.o $(@D)/error_functions.o $(@D)/get_num.o $(@D)/thread_helpers.o $(@D)/dispatcher.o -o $(@D)/dispatcher
 
 server.o: server.c server.h
 	$(CC) $(CFLAGS) $< -o bin/$@
 
 dispatcher.o: dispatcher.c dispatcher.h
+	$(CC) $(CFLAGS) $< -o bin/$@
+
+thread_helpers.o: thread_helpers.c thread_helpers.h
 	$(CC) $(CFLAGS) $< -o bin/$@
 
 error_functions.o: error_functions.c error_functions.h
