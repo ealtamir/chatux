@@ -100,7 +100,7 @@ int startListening(int fifo_fd) {
     ThreadMsgHeader t_header;
     char *request_data = NULL;
 
-    fprintf(stdout, "Listening for dispatcher requests....\n");
+    fprintf(stdout, "Server: Listening for dispatcher requests....\n");
 
     setBlocking(fifo_fd);
 

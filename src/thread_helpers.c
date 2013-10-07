@@ -197,6 +197,8 @@ int sendDataToClient(ThreadData *td, void *svr_data) {
 
     strcat(svr_data, TELNET_END_CHARS);
 
+    //fprintf(stdout, "Dispatcher: Sending to client - %s\n", (char*) svr_data);
+
     len = strlen((char*) svr_data);
     val = write(td->cfd, svr_data, len);
     if (val != len) {
