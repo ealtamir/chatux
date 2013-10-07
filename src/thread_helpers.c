@@ -16,8 +16,15 @@
 #define     TELNET_ENCODE       5
 #define     TELNET_END_CHARS    "\r\n"
 
-void freeThreadData(ThreadData *td);
 int createThreadFifo(int thread_id, int *thr_fifo_fd, int *dummy_fd);
+int getDataFromServer(int thr_fifo, void **svr_data);
+int readClientData(int cfd, char *data_buffer, int data_len);
+int sendDataToClient(ThreadData *td, void *svr_data);
+int sendDataToServer(char *client_data, int data_len, int thread_id);
+int sendResponse(ThreadData *td, int thr_fifo);
+int serveRequest(ThreadData *td, int thr_fifo);
+int startIOListener(ThreadData *td, int thr_fifo, int dummy_fd);
+void freeThreadData(ThreadData *td);
 
 pthread_mutex_t fifo_mtx = PTHREAD_MUTEX_INITIALIZER;
 
@@ -25,52 +32,18 @@ pthread_mutex_t fifo_mtx = PTHREAD_MUTEX_INITIALIZER;
 void* toThreadDelegator(void *args) {
 
     ThreadData *td = (ThreadData*) args;
-    char client_data[MAX_DATA_SIZE];
-    int data_len = 0;
     int val = -1;
-    int svr_fifo = 0;
     int thr_fifo = 0;
     int dummy_fd = 0;
-    void *svr_data = NULL; // malloc ptr for getdatafromserver.
 
     fprintf(stdout, "Thread created - (%s, %s)\n", td->host, td->service);
 
-    val = readClientData(td->cfd, client_data, MAX_DATA_SIZE);
-    if (val == -1)
-        errExitEN(errno, "Error when reading data from a client");
-
-    fprintf(stdout, "val: %d, cfd: %d.\n", val, td->cfd);
-
-    // Create thread fifo before sending data to server.
     val = createThreadFifo(td->thread_id, &thr_fifo, &dummy_fd);
     if (val == -1) {
         errExitEN(errno, "Dispatcher: thr fifo fd was -1.");
     }
 
-    if (val != -1) {
-        data_len = strlen(client_data);
-        val = sendDataToServer(client_data, data_len, td->thread_id);
-        printf("Dispatcher: Data sent to server: %s", client_data);
-
-        if (val == -1)
-            errExitEN(errno, "Error while sending data to server.");
-    }
-
-    if (val != -1) {
-        val = getDataFromServer(thr_fifo, &svr_data);
-    }
-
-
-    if (val != -1) {
-        val = sendDataToClient(td, svr_data);
-        if (val != 0)
-            errMsg("Error when sending data to client.");
-    }
-
-    // Free ptr before starting new listening cycle.
-    free(svr_data);
-
-    val = startIOListener(td, thr_fifo);
+    val = startIOListener(td, thr_fifo, dummy_fd);
     if (val == -1) {
         // Some error checking code.
     }
@@ -235,11 +208,12 @@ int sendDataToClient(ThreadData *td, void *svr_data) {
     return 0;
 }
 
-int startIOListener(ThreadData *td, int thr_fifo) {
+int startIOListener(ThreadData *td, int thr_fifo, int dummy_fd) {
 
     fd_set readfds;
     int ready = -1;
     int nfds = 0;
+    int val = 0;
 
     fprintf(stdout, "Dispatcher: Starting service loop...\n");
 
@@ -257,13 +231,59 @@ int startIOListener(ThreadData *td, int thr_fifo) {
         }
 
         if (FD_ISSET(td->cfd, &readfds)) {
-            fprintf(stdout, "Received new input from socket.\n");
+            val = serveRequest(td, thr_fifo);
         }
         if (FD_ISSET(thr_fifo, &readfds)) {
-            fprintf(stdout, "Received new input from pipe.\n");
+            val = sendResponse(td, thr_fifo);
         }
 
     }
 
     return (ready == -1)? -1: 0;
+}
+
+int serveRequest(ThreadData *td, int thr_fifo) {
+
+    char client_data[MAX_DATA_SIZE];
+    int data_len = 0;
+    int val = -1;
+    int svr_fifo = 0;
+
+    val = readClientData(td->cfd, client_data, MAX_DATA_SIZE);
+    if (val == -1)
+        errExitEN(errno, "Error when reading data from a client");
+
+    fprintf(stdout, "val: %d, cfd: %d.\n", val, td->cfd);
+
+    // Create thread fifo before sending data to server.
+
+    if (val != -1) {
+        data_len = strlen(client_data);
+        val = sendDataToServer(client_data, data_len, td->thread_id);
+        printf("Dispatcher: Data sent to server: %s", client_data);
+
+        if (val == -1)
+            errExitEN(errno, "Error while sending data to server.");
+    }
+
+    return 0;
+}
+
+int sendResponse(ThreadData *td, int thr_fifo) {
+
+    int val = 0;
+    void* svr_data = NULL;
+
+    val = getDataFromServer(thr_fifo, &svr_data);
+    if (val == -1) {
+        errMsg("Dispatcher: Error when getting data from server.");
+    }
+
+    if (val != -1) {
+        val = sendDataToClient(td, svr_data);
+        if (val != 0)
+            errMsg("Error when sending data to client.");
+    }
+
+    return 0;
 }
