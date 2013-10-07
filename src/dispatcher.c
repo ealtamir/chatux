@@ -15,7 +15,7 @@
 
 void freeThreadData(ThreadData *td);
 void* toThreadDelegator(void *args);
-int delegateRequest(int fd, const struct sockaddr *sa, socklen_t salen);
+int delegateRequest(int fd, const struct sockaddr *sa, socklen_t salen, int thread_id);
 int startListenSock(const char *service, socklen_t *addrlen, int backlog);
 int startPassiveSocket(const char *service, int type,
         socklen_t *addrlen, Boolean setListen, int backlog);
@@ -27,6 +27,7 @@ int main(int argc, const char *argv[])
     int len     = 0;
     int optval  = 0;
     int sfd     = -1;
+    int thread_id = 0;
     socklen_t addrlen = 0;
     struct sockaddr_storage claddr;
 
@@ -50,8 +51,10 @@ int main(int argc, const char *argv[])
 
         // Serve request in a new thread.
         // Thread should close its own cfd.
-        delegateRequest(cfd, (struct sockaddr *) &claddr, addrlen);
+        delegateRequest(cfd, (struct sockaddr *) &claddr, addrlen, thread_id);
         fprintf(stdout, "New request delegated.\n");
+
+        thread_id++;
     }
 
     close(sfd);
@@ -59,7 +62,7 @@ int main(int argc, const char *argv[])
     return 0;
 }
 
-int delegateRequest(int fd, const struct sockaddr *sa, socklen_t salen) {
+int delegateRequest(int fd, const struct sockaddr *sa, socklen_t salen, int thread_id) {
 
     char *host      = NULL;
     char *service   = NULL;
@@ -67,6 +70,9 @@ int delegateRequest(int fd, const struct sockaddr *sa, socklen_t salen) {
     pthread_t new_thread;
     ThreadData *args = NULL;
 
+    //
+    // These variables are freed by the threads.
+    //
     host = malloc(NI_MAXHOST);
     service = malloc(NI_MAXSERV);
 
@@ -87,6 +93,7 @@ int delegateRequest(int fd, const struct sockaddr *sa, socklen_t salen) {
     args->service = service;
     args->sa = sa;
     args->salen = salen;
+    args->thread_id = thread_id;
 
     val = pthread_create(&new_thread, NULL, &toThreadDelegator, args);
     if (val > 0) {

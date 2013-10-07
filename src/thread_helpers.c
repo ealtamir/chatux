@@ -9,10 +9,15 @@
 #include "../lib/dispatcher.h"
 #include "../lib/error_functions.h"
 #include "../lib/get_num.h"
-#include "../lib/thread_helpers.h"
+#include "../lib/helpers.h"
 #include "../lib/server.h"
+#include "../lib/thread_helpers.h"
+
+#define     TELNET_ENCODE       5
+#define     TELNET_END_CHARS    "\r\n"
 
 void freeThreadData(ThreadData *td);
+int createThreadFifo(int thread_id, int *thr_fifo_fd, int *dummy_fd);
 
 pthread_mutex_t fifo_mtx = PTHREAD_MUTEX_INITIALIZER;
 
@@ -24,34 +29,37 @@ void* toThreadDelegator(void *args) {
     int data_len = 0;
     int val = -1;
     int svr_fifo = 0;
-    int pipe_fd[2];
+    int thr_fifo = 0;
+    int dummy_fd = 0;
     void *svr_data = NULL; // malloc ptr for getdatafromserver.
 
     fprintf(stdout, "Thread created - (%s, %s)\n", td->host, td->service);
 
     val = readClientData(td->cfd, client_data, MAX_DATA_SIZE);
     if (val == -1)
-        errMsg("Error when reading data from a client");
+        errExitEN(errno, "Error when reading data from a client");
 
-    fprintf(stdout, "val: %d.\n", val);
+    fprintf(stdout, "val: %d, cfd: %d.\n", val, td->cfd);
+
+    // Create thread fifo before sending data to server.
+    val = createThreadFifo(td->thread_id, &thr_fifo, &dummy_fd);
+    if (val == -1) {
+        errExitEN(errno, "Dispatcher: thr fifo fd was -1.");
+    }
 
     if (val != -1) {
         data_len = strlen(client_data);
+        val = sendDataToServer(client_data, data_len, td->thread_id);
+        printf("Dispatcher: Data sent to server: %s", client_data);
 
-        val = sendDataToServer(client_data, data_len, pipe_fd);
-        printf("Data sent to server: %s", client_data);
         if (val == -1)
-            errMsg("Error while sending data to server.");
+            errExitEN(errno, "Error while sending data to server.");
     }
-
 
     if (val != -1) {
-        val = getDataFromServer(pipe_fd, svr_data);
-        if (val != -1 || val != sizeof(ThreadMsgHeader))
-            errMsg("Error when receiving response from server in thread.");
+        val = getDataFromServer(thr_fifo, &svr_data);
     }
 
-    fprintf(stdout, "Data received from server: %s", svr_data);
 
     if (val != -1) {
         val = sendDataToClient(td, svr_data);
@@ -59,12 +67,10 @@ void* toThreadDelegator(void *args) {
             errMsg("Error when sending data to client.");
     }
 
-    fprintf(stdout, "data to client: %s.\n", (char*) svr_data);
-
     // Free ptr before starting new listening cycle.
     free(svr_data);
 
-    val = startIOListener(td, pipe_fd);
+    val = startIOListener(td, thr_fifo);
     if (val == -1) {
         // Some error checking code.
     }
@@ -73,9 +79,36 @@ void* toThreadDelegator(void *args) {
     // Cleaning operations
     //
     close(td->cfd);         // Close client socket
+    close(thr_fifo);
+    close(dummy_fd);
     freeThreadData(td);
 
     return NULL;
+}
+
+int createThreadFifo(int thread_id, int *thr_fifo_fd, int *dummy_fd) {
+
+    int var = 0;
+    char thr_fifo_pname[MAX_FIFO_N_LEN];
+
+    snprintf(thr_fifo_pname, MAX_FIFO_N_LEN, T_FIFO_PATH, thread_id);
+    fprintf(stdout, "Dispatcher: thread fifo pathname - %s\n", thr_fifo_pname);
+
+    remove(thr_fifo_pname);
+    var = mkfifo(thr_fifo_pname, S_IRUSR | S_IWUSR | S_IWGRP);
+    if (var == -1) {
+        errExitEN(errno, "Dispatcher: Thread couldn't CREATE the fifo.");
+    }
+    *thr_fifo_fd = open(thr_fifo_pname, O_RDONLY | O_NONBLOCK);
+    if (*thr_fifo_fd == -1) {
+        errExitEN(errno, "Dispatcher: Thread couldn't OPEN the fifo.");
+    }
+    *dummy_fd = open(thr_fifo_pname, O_WRONLY);
+    if (*dummy_fd == -1) {
+        errExitEN(errno, "Dispatcher: Thread couldn't OPEN dummy fifo writer.");
+    }
+
+    return var;
 }
 
 void freeThreadData(ThreadData *td) {
@@ -107,38 +140,37 @@ int readClientData(int cfd, char *data_buffer, int data_len) {
     return index;
 }
 
-int getDataFromServer(int *pipe_fd, void *svr_data) {
+int getDataFromServer(int thr_fifo, void **svr_data) {
 
     int val = -1;
     ThreadMsgHeader t_header;
 
-    fprintf(stdout, "Dispatcher: Start reading from pipe.\n");
+    fprintf(stdout, "Dispatcher: Start reading from FIFO.\n");
 
-    close(pipe_fd[1]);
+    setBlocking(thr_fifo);
 
-    //
-    // Thread hasn't closed his pipe write side fd, it
-    // should be done by the server.
-    //
-    val = read(pipe_fd[0], &t_header, sizeof(ThreadMsgHeader));
+    val = read(thr_fifo, &t_header, sizeof(ThreadMsgHeader));
     if (val != sizeof(ThreadMsgHeader)) {
-        errMsg("Dispatcher: Error when thread tried to read from pipe: header size mismatch.");
-        return -1;
+        errExitEN(errno, "Dispatcher: Error when thread tried to\
+                read HEADER from fifo: header size mismatch.\
+                read: %d, expected: %d", val, sizeof(ThreadMsgHeader));
     }
 
-    svr_data = malloc(t_header.msg_size);
-    val = read(pipe_fd[0], svr_data, t_header.msg_size);
+
+    *svr_data = malloc(t_header.msg_size + TELNET_ENCODE);
+    val = read(thr_fifo, *svr_data, t_header.msg_size);
     if (val != t_header.msg_size) {
-        errMsg("Dispatcher: Error when thread tried to read from pipe: data size mismatch.");
         free(svr_data);
-        return -1;
+        errExitEN(errno, "Dispatcher: Error when thread tried to read MSG from fifo: data size mismatch.");
     }
+
+    fprintf(stdout, "Dispatcher: Data from server read - %s\n", (char*) *svr_data);
 
 
     return 0;
 }
 
-int sendDataToServer(char *client_data, int data_len, int *pipe_fd) {
+int sendDataToServer(char *client_data, int data_len, int thread_id) {
 
     ThreadMsgHeader t_header;
     int fifo_fd = -1;
@@ -150,25 +182,15 @@ int sendDataToServer(char *client_data, int data_len, int *pipe_fd) {
         return -1;
     }
 
-    val = pipe(pipe_fd);
-    if (val == -1) {
-        errMsg("Error when opening thread pipe.");
-        return -1;
-    }
-
     t_header.msg_size = data_len;
-    t_header.pipe_fd[1] = pipe_fd[1];
-    t_header.pipe_fd[0] = pipe_fd[0];
-
-    close(t_header.pipe_fd[1]);
+    t_header.thread_id = thread_id;
 
     //
     // Lock the mutex.
     //
     pthread_mutex_lock(&fifo_mtx);
 
-    fprintf(stdout, "Pipe file descriptor: read %d - write %d\n", pipe_fd[0], pipe_fd[1]);
-    //fprintf(stdout, "Dispatcher: Writing data to server.\n");
+    fprintf(stdout, "Dispatcher: Writing data to server.\n");
 
     val = write(fifo_fd, &t_header, sizeof(ThreadMsgHeader));
     if (val != sizeof(ThreadMsgHeader)) {
@@ -198,28 +220,35 @@ int sendDataToClient(ThreadData *td, void *svr_data) {
     int val = -1;
     int len = 0;
 
+    fprintf(stdout, "Dispatcher: Sending data to client\n");
+
+    strcat(svr_data, TELNET_END_CHARS);
+
     len = strlen((char*) svr_data);
     val = write(td->cfd, svr_data, len);
     if (val != len) {
-        errMsg("Thread couldn't send message to client: data size mismatch");
-        return -1;
+        errExitEN(errno, "Dispatcher: Thread couldn't send message to client: data size mismatch");
     }
+
+    fprintf(stdout, "Dispatcher: Data sent to client...\n");
 
     return 0;
 }
 
-int startIOListener(ThreadData *td, int *pipe_fd) {
+int startIOListener(ThreadData *td, int thr_fifo) {
 
     fd_set readfds;
     int ready = -1;
     int nfds = 0;
 
+    fprintf(stdout, "Dispatcher: Starting service loop...\n");
+
     for(;;) {
         FD_ZERO(&readfds);
         FD_SET(td->cfd, &readfds);
-        FD_SET(pipe_fd[1], &readfds);
+        FD_SET(thr_fifo, &readfds);
 
-        nfds = max(td->cfd, pipe_fd[1]) + 1;
+        nfds = max(td->cfd, thr_fifo) + 1;
 
         ready = select(nfds, &readfds, NULL, NULL, NULL);
         if (ready == -1) {
@@ -230,7 +259,7 @@ int startIOListener(ThreadData *td, int *pipe_fd) {
         if (FD_ISSET(td->cfd, &readfds)) {
             fprintf(stdout, "Received new input from socket.\n");
         }
-        if (FD_ISSET(pipe_fd[1], &readfds)) {
+        if (FD_ISSET(thr_fifo, &readfds)) {
             fprintf(stdout, "Received new input from pipe.\n");
         }
 

@@ -5,4 +5,6 @@ void rot13(const char* source, char* dest, int len );
 
 int getUserInput(char* buffer, int buffer_size);
 
+void setBlocking(int fd);
+
 #endif

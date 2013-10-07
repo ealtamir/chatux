@@ -1,10 +1,12 @@
 #include <signal.h>
 #include <libgen.h>
 
+#include "../lib/helpers.h"
 #include "../lib/common_headers.h"
+#include "../lib/dispatcher.h"
 #include "../lib/error_functions.h"
 #include "../lib/server.h"
-#include "../lib/dispatcher.h"
+#include "../lib/thread_helpers.h"
 
 #define     DISPATCHER_PATHNAME     "/bin/dispatcher"
 #define     DISPATCHER_NAME         "dispatcher"
@@ -60,27 +62,34 @@ int main(int argc, const char *argv[])
 int processRequest(ThreadMsgHeader t_header, char *user_data, int data_len) {
 
     int val = 0;
+    int thr_fifo_fd = 0;
+    char thr_fifo_path[MAX_FIFO_N_LEN];
     ThreadMsgHeader resp_header;
 
-    fprintf(stdout, "Server: Pipefd, read: %d, write: %d\n",
-        t_header.pipe_fd[0], t_header.pipe_fd[1]);
+    fprintf(stdout, "Server: thread_id: %d\n", t_header.thread_id);
+    snprintf(thr_fifo_path, MAX_FIFO_N_LEN, T_FIFO_PATH, t_header.thread_id);
 
-    close(t_header.pipe_fd[0]);
+    thr_fifo_fd = open(thr_fifo_path, O_WRONLY);
+    if (thr_fifo_fd == -1) {
+        errExitEN(errno, "Server: Couldn't open thread fifo for writing");
+    }
 
     resp_header.msg_size = data_len;
-    val = write(t_header.pipe_fd[1], &resp_header, sizeof(ThreadMsgHeader));
+    val = write(thr_fifo_fd, &resp_header, sizeof(ThreadMsgHeader));
     if (val != sizeof(ThreadMsgHeader)) {
-        errMsg("Server: couldn't send response HEADER through pipe: size mismatch. val = %d, expected %d", val, sizeof(ThreadMsgHeader));
+        errMsg("Server: couldn't send response HEADER through fifo: size mismatch. val = %d, expected %d", val, sizeof(ThreadMsgHeader));
         return -1;
     }
 
-    val = write(t_header.pipe_fd[1], user_data, data_len);
+    val = write(thr_fifo_fd, user_data, data_len);
     if (val != data_len) {
-        errMsg("Server: couldn't send response DATA through pipe: size mismatch");
+        errMsg("Server: couldn't send response DATA through fifo: size mismatch");
         return -1;
     }
 
-    fprintf(stdout, "Data sent: %s\n", user_data);
+    fprintf(stdout, "Server: Data sent: %s\n", user_data);
+
+    close(thr_fifo_fd);
 
     return 0;
 }
@@ -93,9 +102,7 @@ int startListening(int fifo_fd) {
 
     fprintf(stdout, "Listening for dispatcher requests....\n");
 
-    flags = fcntl(fifo_fd, F_GETFL);
-    flags &= ~O_NONBLOCK;
-    fcntl(fifo_fd, F_SETFL, flags);
+    setBlocking(fifo_fd);
 
     for(;;) {
         val = read(fifo_fd, &t_header, sizeof(ThreadMsgHeader));
@@ -118,10 +125,6 @@ int startListening(int fifo_fd) {
             free(request_data);
             continue;
         }
-
-        // TODO: FIX THIS!!!!
-        //  Close read part of the thread pipe.
-        close(t_header.pipe_fd[0]);
 
         val = processRequest(t_header, request_data, t_header.msg_size);
 

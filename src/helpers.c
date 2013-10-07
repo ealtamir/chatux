@@ -1,5 +1,6 @@
 #include "../lib/helpers.h"
 #include <stdio.h>
+#include <fcntl.h>
 
 #define A_MAY 0x41 // Capital
 #define Z_MAY 0x5A
@@ -45,4 +46,14 @@ int getUserInput(char* buffer, int buffer_size) {
     buffer[index++] = '\0';
 
     return index;
+}
+
+void setBlocking(int fd) {
+
+    int flags = 0;
+
+    flags = fcntl(fd, F_GETFL);
+    flags &= ~O_NONBLOCK;
+    fcntl(fd, F_SETFL, flags);
+
 }
