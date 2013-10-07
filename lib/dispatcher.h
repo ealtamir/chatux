@@ -4,7 +4,7 @@
 #include <sys/socket.h>
 
 #define     MAX_DATA_SIZE   (1024*4)
-#define     PORT_NUM        "50000"
+#define     PORT_NUM        "50001"
 #define     BACKLOG         5
 #define     ADDRSTRLEN      (NI_MAXHOST + NI_MAXSERV + 10)
 

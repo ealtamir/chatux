@@ -21,6 +21,7 @@ void* toThreadDelegator(void *args) {
 
     ThreadData *td = (ThreadData*) args;
     char client_data[MAX_DATA_SIZE];
+    int data_len = 0;
     int val = -1;
     int svr_fifo = 0;
     int pipe_fd[2];
@@ -32,17 +33,25 @@ void* toThreadDelegator(void *args) {
     if (val == -1)
         errMsg("Error when reading data from a client");
 
+    fprintf(stdout, "val: %d.\n", val);
+
     if (val != -1) {
-        val = sendDataToServer(client_data, MAX_DATA_SIZE, pipe_fd);
+        data_len = strlen(client_data);
+
+        val = sendDataToServer(client_data, data_len, pipe_fd);
+        printf("Data sent to server: %s", client_data);
         if (val == -1)
             errMsg("Error while sending data to server.");
     }
 
+
     if (val != -1) {
         val = getDataFromServer(pipe_fd, svr_data);
-        if (val != sizeof(ThreadMsgHeader))
+        if (val != -1 || val != sizeof(ThreadMsgHeader))
             errMsg("Error when receiving response from server in thread.");
     }
+
+    fprintf(stdout, "Data received from server: %s", svr_data);
 
     if (val != -1) {
         val = sendDataToClient(td, svr_data);
@@ -50,15 +59,15 @@ void* toThreadDelegator(void *args) {
             errMsg("Error when sending data to client.");
     }
 
+    fprintf(stdout, "data to client: %s.\n", (char*) svr_data);
+
     // Free ptr before starting new listening cycle.
     free(svr_data);
 
-    /*
     val = startIOListener(td, pipe_fd);
     if (val == -1) {
         // Some error checking code.
     }
-    */
 
     //
     // Cleaning operations
@@ -95,14 +104,17 @@ int readClientData(int cfd, char *data_buffer, int data_len) {
         }
     }
 
-    fprintf(stdout, "read: %s\n", data_buffer);
-
     return index;
 }
+
 int getDataFromServer(int *pipe_fd, void *svr_data) {
 
     int val = -1;
     ThreadMsgHeader t_header;
+
+    fprintf(stdout, "Dispatcher: Start reading from pipe.\n");
+
+    close(pipe_fd[1]);
 
     //
     // Thread hasn't closed his pipe write side fd, it
@@ -110,18 +122,18 @@ int getDataFromServer(int *pipe_fd, void *svr_data) {
     //
     val = read(pipe_fd[0], &t_header, sizeof(ThreadMsgHeader));
     if (val != sizeof(ThreadMsgHeader)) {
-        errMsg("Error when thread tried to read from pipe: header size mismatch.");
+        errMsg("Dispatcher: Error when thread tried to read from pipe: header size mismatch.");
         return -1;
     }
 
     svr_data = malloc(t_header.msg_size);
-    val = read(pipe_fd[1], svr_data, t_header.msg_size);
+    val = read(pipe_fd[0], svr_data, t_header.msg_size);
     if (val != t_header.msg_size) {
-        errMsg("Error when thread tried to read from pipe: data size mismatch.");
+        errMsg("Dispatcher: Error when thread tried to read from pipe: data size mismatch.");
+        free(svr_data);
         return -1;
     }
 
-    close(pipe_fd[1]);
 
     return 0;
 }
@@ -148,10 +160,15 @@ int sendDataToServer(char *client_data, int data_len, int *pipe_fd) {
     t_header.pipe_fd[1] = pipe_fd[1];
     t_header.pipe_fd[0] = pipe_fd[0];
 
+    close(t_header.pipe_fd[1]);
+
     //
     // Lock the mutex.
     //
     pthread_mutex_lock(&fifo_mtx);
+
+    fprintf(stdout, "Pipe file descriptor: read %d - write %d\n", pipe_fd[0], pipe_fd[1]);
+    //fprintf(stdout, "Dispatcher: Writing data to server.\n");
 
     val = write(fifo_fd, &t_header, sizeof(ThreadMsgHeader));
     if (val != sizeof(ThreadMsgHeader)) {
@@ -171,6 +188,8 @@ int sendDataToServer(char *client_data, int data_len, int *pipe_fd) {
     // Unlock the mutex.
     //
     pthread_mutex_unlock(&fifo_mtx);
+
+    fprintf(stdout, "Dispatcher: Data sent to server.\n");
 
     return 0;
 }
@@ -209,10 +228,10 @@ int startIOListener(ThreadData *td, int *pipe_fd) {
         }
 
         if (FD_ISSET(td->cfd, &readfds)) {
-            // Request from client received
+            fprintf(stdout, "Received new input from socket.\n");
         }
         if (FD_ISSET(pipe_fd[1], &readfds)) {
-            // Response from server received
+            fprintf(stdout, "Received new input from pipe.\n");
         }
 
     }

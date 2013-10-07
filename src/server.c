@@ -10,7 +10,7 @@
 #define     DISPATCHER_NAME         "dispatcher"
 
 int initDispatcher();
-int startListening();
+int startListening(int fifo_fd);
 int processRequest(ThreadMsgHeader t_header, char *user_data, int data_len);
 
 int main(int argc, const char *argv[])
@@ -47,7 +47,7 @@ int main(int argc, const char *argv[])
     //
     // Main server loop
     //
-    val = startListening();
+    val = startListening(fifo_fd);
     if (val == -1)
         errExitEN(errno, "Server failed in the listening loop.");
 
@@ -57,42 +57,45 @@ int main(int argc, const char *argv[])
     return 0;
 }
 
-int processRequest(ThreadMsgHeader t_header,
-        char *user_data, int data_len) {
+int processRequest(ThreadMsgHeader t_header, char *user_data, int data_len) {
 
     int val = 0;
     ThreadMsgHeader resp_header;
 
+    fprintf(stdout, "Server: Pipefd, read: %d, write: %d\n",
+        t_header.pipe_fd[0], t_header.pipe_fd[1]);
+
+    close(t_header.pipe_fd[0]);
 
     resp_header.msg_size = data_len;
     val = write(t_header.pipe_fd[1], &resp_header, sizeof(ThreadMsgHeader));
     if (val != sizeof(ThreadMsgHeader)) {
-        errMsg("Server couldn't send response header through pipe: size mismatch.");
+        errMsg("Server: couldn't send response HEADER through pipe: size mismatch. val = %d, expected %d", val, sizeof(ThreadMsgHeader));
         return -1;
     }
 
     val = write(t_header.pipe_fd[1], user_data, data_len);
     if (val != data_len) {
-        errMsg("Server couldn't send response header through pipe: size mismatch");
+        errMsg("Server: couldn't send response DATA through pipe: size mismatch");
         return -1;
     }
 
-    //
-    // SHOULD NOT BE CLOSED UNTIL THREAD IS KILLED.
-    //
-    close(t_header.pipe_fd[1]);
-
-    fprintf(stdout, "%s\n", user_data);
+    fprintf(stdout, "Data sent: %s\n", user_data);
 
     return 0;
 }
 
 int startListening(int fifo_fd) {
     int val = -1;
+    int flags = 0;
     ThreadMsgHeader t_header;
     char *request_data = NULL;
 
     fprintf(stdout, "Listening for dispatcher requests....\n");
+
+    flags = fcntl(fifo_fd, F_GETFL);
+    flags &= ~O_NONBLOCK;
+    fcntl(fifo_fd, F_SETFL, flags);
 
     for(;;) {
         val = read(fifo_fd, &t_header, sizeof(ThreadMsgHeader));
@@ -101,11 +104,15 @@ int startListening(int fifo_fd) {
             continue;
         }
 
-        request_data = malloc(t_header.msg_size);
-        if (request_data == NULL)
-            errMsg("Server malloc failed with - %s", errno);
+        fprintf(stdout, "Server: request header received - msg_size: %d.\n", t_header.msg_size);
 
-        val = read(fifo_fd, &request_data, t_header.msg_size);
+        request_data = (char*) malloc(t_header.msg_size);
+        if (request_data == NULL) {
+            errMsg("Server malloc failed with - %s", errno);
+            continue;
+        }
+
+        val = read(fifo_fd, request_data, t_header.msg_size);
         if (val != t_header.msg_size) {
             errMsg("Error while reading request_data");
             free(request_data);
@@ -116,7 +123,7 @@ int startListening(int fifo_fd) {
         //  Close read part of the thread pipe.
         close(t_header.pipe_fd[0]);
 
-        processRequest(t_header, request_data, t_header.msg_size);
+        val = processRequest(t_header, request_data, t_header.msg_size);
 
         free(request_data);
     }

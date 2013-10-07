@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <sys/select.h>
 #include <sys/time.h>
+#include <signal.h>
 
 #include "../lib/common_headers.h"
 #include "../lib/dispatcher.h"
@@ -30,11 +31,14 @@ int main(int argc, const char *argv[])
     struct sockaddr_storage claddr;
 
     if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
-        errExitEN(errno, "Server couldn't ignore SIGPIPE signal.");
+        errExitEN(errno, "Dispatcher couldn't ignore SIGPIPE signal.");
 
     sfd = startListenSock(PORT_NUM, &addrlen, BACKLOG);
-    if (sfd == -1)
-        errExitEN(errno, "Server couldn't bind socket.");
+    if (sfd == -1) {
+        errMsg("Dispatcher couldn't bind socket.");
+        kill(getppid(), SIGTERM);
+        return -1;
+    }
 
     for(;;) {
         addrlen = sizeof(struct sockaddr_storage);
@@ -128,7 +132,7 @@ startPassiveSocket(const char *service, int type,
         errExitEN(errno, "Call to getaddrinfo() was unsuccessful.");
 
     for(rp = result; rp != NULL; rp = rp->ai_next) {
-        printf("reading...\n");
+        printf("Trying to bind socket...\n");
         sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (sfd == -1)
             continue;
